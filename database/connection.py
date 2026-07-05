@@ -5,4 +5,4 @@ load_dotenv()
 
 print("HOST:", os.getenv("DB_HOST"))
 print("USER:", os.getenv("DB_USER"))
-print("PASSWORD:", os.getenv("DB_PASSWORD"))
+print("PASSWORD:", os.getenv("npg_GoYV91BEJlZd"))
