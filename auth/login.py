@@ -23,18 +23,17 @@ def login():
 
         cursor.execute(
             """
-            SELECT
-                id,
-                first_name,
-                last_name,
-                password_hash,
-                active
-
-            FROM users
-
-            WHERE email = %s
-            """,
-            (email,)
+          SELECT
+    id,
+    company_id,
+    first_name,
+    last_name,
+    email,
+    password_hash,
+    active,
+    user_type
+FROM users
+WHERE email=%s
         )
 
         user = cursor.fetchone()
