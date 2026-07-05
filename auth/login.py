@@ -1,64 +1,53 @@
 import streamlit as st
+import mysql.connector
 
-from database.connection import get_connection
-from auth.security import verify_password
-
-
-def login():
-
-    st.title("🔐 PG Manager")
-
-    email = st.text_input("Correo")
-
-    password = st.text_input(
-        "Contraseña",
-        type="password"
+def get_connection():
+    return mysql.connector.connect(
+        host=st.secrets["DB_HOST"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        database=st.secrets["DB_NAME"],
+        port=int(st.secrets["DB_PORT"])
     )
 
-    if st.button("Iniciar sesión"):
+def get_user_by_email(email):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
 
-        conn = get_connection()
+    query = """
+    SELECT
+        id,
+        company_id,
+        first_name,
+        last_name,
+        email,
+        password_hash,
+        active,
+        user_type
+    FROM users
+    WHERE email = %s
+    """
 
-        cursor = conn.cursor()
+    cursor.execute(query, (email,))
+    user = cursor.fetchone()
 
-        cursor.execute(
-            """
-          SELECT
-    id,
-    company_id,
-    first_name,
-    last_name,
-    email,
-    password_hash,
-    active,
-    user_type
-FROM users
-WHERE email=%s
-        )
+    cursor.close()
+    conn.close()
 
-        user = cursor.fetchone()
+    return user
 
-        cursor.close()
-        conn.close()
+def login():
+    st.title("Inicio de sesión")
 
-        if user is None:
-            st.error("Correo o contraseña incorrectos")
-            return
+    email = st.text_input("Correo electrónico")
+    password = st.text_input("Contraseña", type="password")
 
-        if not user[4]:
-            st.error("Usuario inactivo")
-            return
+    if st.button("Ingresar"):
+        user = get_user_by_email(email)
 
-        if verify_password(password, user[3]):
-
-            st.session_state.logged = True
-
-            st.session_state.user_id = user[0]
-
-            st.session_state.user_name = f"{user[1]} {user[2]}"
-
-            st.rerun()
-
+        if user:
+            st.success("Usuario encontrado")
+            st.session_state["user"] = user
+            st.session_state["logged_in"] = True
         else:
-
             st.error("Correo o contraseña incorrectos")
