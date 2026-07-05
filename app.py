@@ -329,13 +329,13 @@ def login_screen():
 
     if st.button("Ingresar", use_container_width=True):
         if not email.strip() or not password.strip():
-            st.warning("Ingrese email y contraseña.")
+            st.warning("Ingrese email y contraseña.Usando el dominio: peraltasgarage.com ")
             st.stop()
 
         user = get_user_by_email(email.strip().lower())
 
         if not user:
-            st.error("Usuario o contraseña incorrectos.")
+            st.error("Usuario o contraseña incorrectos. ")
             st.stop()
 
         if not user["active"]:
