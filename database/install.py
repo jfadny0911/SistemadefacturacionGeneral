@@ -1,9 +1,6 @@
 import streamlit as st
-
-from database.install import (
-    create_company,
-    create_admin,
-)
+from database.connection import get_connection
+from auth.security import hash_password
 
 
 def setup_page():
