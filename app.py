@@ -4,6 +4,8 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy import text
 import base64
+import tempfile
+import os
 
 
 # =========================
@@ -31,12 +33,34 @@ conn = st.connection("postgresql", type="sql")
 
 
 # =========================
-# TEXTO SEGURO PARA PDF
+# FUNCIONES AUXILIARES
 # =========================
 def safe_text(value):
     if value is None:
         return ""
     return str(value).encode("latin-1", "replace").decode("latin-1")
+
+
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def save_uploaded_logo(uploaded_logo):
+    if uploaded_logo is None:
+        return None
+
+    suffix = os.path.splitext(uploaded_logo.name)[1].lower()
+
+    if suffix not in [".png", ".jpg", ".jpeg"]:
+        st.warning("Please upload a PNG or JPG logo.")
+        return None
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    temp_file.write(uploaded_logo.read())
+    temp_file.close()
+
+    return temp_file.name
 
 
 # =========================
@@ -79,7 +103,7 @@ init_db()
 
 
 # =========================
-# NÚMERO AUTOMÁTICO DE FACTURA
+# NÚMERO AUTOMÁTICO
 # =========================
 def get_next_invoice_number():
     try:
@@ -99,7 +123,7 @@ def get_next_invoice_number():
 
 
 # =========================
-# ESTADOS DE STREAMLIT
+# ESTADOS
 # =========================
 if "address_rows" not in st.session_state:
     st.session_state.address_rows = [""]
@@ -116,80 +140,112 @@ if "service_rows" not in st.session_state:
 class ModernInvoice(FPDF):
 
     def draw_header(self, data):
-        self.azul = (20, 50, 90)
-        self.rojo = (190, 20, 35)
-        self.amarillo = (245, 205, 70)
+        self.azul = data["primary_color"]
+        self.rojo = data["accent_color"]
+        self.amarillo = data["highlight_color"]
         self.gris = (245, 245, 245)
+
+        language = data.get("language", "English")
+
+        if language == "Español":
+            invoice_text = "FACTURA"
+            invoice_no_text = "Factura No:"
+            date_text = "Fecha:"
+            due_date_text = "Vence:"
+            invoice_to_text = "FACTURADO A:"
+            business_info_text = "INFORMACIÓN"
+            phone_text = "Tel:"
+            payable_text = "Pagar a:"
+        else:
+            invoice_text = "INVOICE"
+            invoice_no_text = "Invoice No:"
+            date_text = "Date:"
+            due_date_text = "Due Date:"
+            invoice_to_text = "INVOICE TO:"
+            business_info_text = "BUSINESS INFO"
+            phone_text = "Tel:"
+            payable_text = "Payable to:"
 
         # Fondo superior
         self.set_fill_color(*self.azul)
-        self.rect(0, 0, 210, 48, "F")
+        self.rect(0, 0, 210, 50, "F")
 
-        # Línea roja superior
+        # Línea superior
         self.set_fill_color(*self.rojo)
         self.rect(0, 0, 210, 3, "F")
 
-        # Nombre negocio
-        self.set_xy(10, 9)
-        self.set_font("Helvetica", "B", 20)
-        self.set_text_color(255, 255, 255)
-        self.cell(110, 8, safe_text(data["business_name"]), ln=True)
+        # Logo opcional
+        logo_path = data.get("logo_path")
+        text_start_x = 10
 
-        self.set_x(10)
+        if logo_path and os.path.exists(logo_path):
+            try:
+                self.image(logo_path, 10, 7, 30)
+                text_start_x = 45
+            except Exception:
+                text_start_x = 10
+
+        # Nombre del negocio
+        self.set_xy(text_start_x, 8)
+        self.set_font("Helvetica", "B", 18)
+        self.set_text_color(255, 255, 255)
+        self.cell(100, 8, safe_text(data["business_name"]), ln=True)
+
+        self.set_x(text_start_x)
         self.set_font("Helvetica", "B", 10)
         self.set_text_color(*self.amarillo)
-        self.cell(110, 6, "RESIDENCIAL Y COMERCIAL", ln=True)
+        self.cell(100, 6, safe_text(data["business_subtitle"]), ln=True)
 
-        self.set_x(10)
+        self.set_x(text_start_x)
         self.set_font("Helvetica", "", 9)
         self.set_text_color(230, 230, 230)
         self.multi_cell(
-            100,
+            95,
             5,
             safe_text(data["business_description"]),
             align="L"
         )
 
-        self.set_x(10)
-        self.set_font("Helvetica", "B", 12)
+        self.set_x(text_start_x)
+        self.set_font("Helvetica", "B", 11)
         self.set_text_color(255, 255, 255)
-        self.cell(100, 7, f"Tel: {safe_text(data['phone'])}", ln=True)
+        self.cell(100, 6, f"{phone_text} {safe_text(data['phone'])}", ln=True)
 
-        # Título Invoice
-        self.set_xy(120, 10)
-        self.set_font("Helvetica", "B", 34)
+        # Título factura
+        self.set_xy(122, 10)
+        self.set_font("Helvetica", "B", 32)
         self.set_text_color(*self.amarillo)
-        self.cell(80, 14, "INVOICE", align="R")
+        self.cell(78, 14, invoice_text, align="R")
 
         self.set_text_color(255, 255, 255)
 
         self.set_xy(125, 28)
         self.set_font("Helvetica", "", 10)
-        self.cell(30, 5, "Invoice No:")
+        self.cell(32, 5, invoice_no_text)
         self.set_font("Helvetica", "B", 10)
-        self.cell(45, 5, f"#{safe_text(data['inv_num'])}", align="R", ln=True)
+        self.cell(43, 5, f"#{safe_text(data['inv_num'])}", align="R", ln=True)
 
         self.set_xy(125, 34)
         self.set_font("Helvetica", "", 10)
-        self.cell(30, 5, "Date:")
+        self.cell(32, 5, date_text)
         self.set_font("Helvetica", "B", 10)
-        self.cell(45, 5, safe_text(data["date"]), align="R", ln=True)
+        self.cell(43, 5, safe_text(data["date"]), align="R", ln=True)
 
         self.set_xy(125, 40)
         self.set_font("Helvetica", "", 10)
-        self.cell(30, 5, "Due Date:")
+        self.cell(32, 5, due_date_text)
         self.set_font("Helvetica", "B", 10)
-        self.cell(45, 5, safe_text(data["due_date"]), align="R", ln=True)
+        self.cell(43, 5, safe_text(data["due_date"]), align="R", ln=True)
 
-        # Barra amarilla
+        # Barra inferior del header
         self.set_fill_color(*self.amarillo)
-        self.rect(0, 48, 210, 5, "F")
+        self.rect(0, 50, 210, 5, "F")
 
         # Cliente
-        self.set_xy(12, 62)
+        self.set_xy(12, 64)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*self.rojo)
-        self.cell(80, 6, "INVOICE TO:", ln=True)
+        self.cell(80, 6, invoice_to_text, ln=True)
 
         self.set_x(12)
         self.set_font("Helvetica", "B", 15)
@@ -201,24 +257,24 @@ class ModernInvoice(FPDF):
         self.set_text_color(40, 40, 40)
         self.multi_cell(95, 5, safe_text(data["project_addr"]), align="L")
 
-        # Info negocio
-        self.set_xy(125, 62)
+        # Información del negocio
+        self.set_xy(125, 64)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*self.azul)
-        self.cell(75, 6, "BUSINESS INFO", ln=True)
+        self.cell(75, 6, business_info_text, ln=True)
 
         self.set_draw_color(*self.rojo)
-        self.line(125, 69, 175, 69)
+        self.line(125, 71, 175, 71)
 
-        self.set_xy(125, 73)
+        self.set_xy(125, 75)
         self.set_font("Helvetica", "", 10)
         self.set_text_color(40, 40, 40)
         self.multi_cell(
             75,
             5,
             safe_text(
-                f"Payable to: {data['payable_to']}\n"
-                f"Phone: {data['phone']}"
+                f"{payable_text} {data['payable_to']}\n"
+                f"{phone_text} {data['phone']}"
             ),
             align="L"
         )
@@ -228,6 +284,43 @@ class ModernInvoice(FPDF):
 # GENERAR PDF
 # =========================
 def generate_pdf(data, services, addresses):
+    language = data.get("language", "English")
+
+    if language == "Español":
+        columns = [
+            {"name": "DESCRIPCIÓN", "w": 100},
+            {"name": "PRECIO", "w": 35},
+            {"name": "CANT.", "w": 20},
+            {"name": "TOTAL", "w": 35}
+        ]
+        terms_title = "TÉRMINOS Y CONDICIONES"
+        terms_text = (
+            "Gracias por su preferencia.\n"
+            "El pago debe realizarse según la fecha indicada en esta factura.\n"
+            "Las condiciones de garantía pueden variar según el tipo de instalación o reparación."
+        )
+        subtotal_label = "Sub-total:"
+        tax_label = "Impuesto:"
+        total_label = "Total:"
+        signature_label = "Administrador"
+    else:
+        columns = [
+            {"name": "DESCRIPTION", "w": 100},
+            {"name": "UNIT PRICE", "w": 35},
+            {"name": "QTY", "w": 20},
+            {"name": "TOTAL", "w": 35}
+        ]
+        terms_title = "TERMS AND CONDITIONS"
+        terms_text = (
+            "Thank you for your business.\n"
+            "Payment is due according to the date listed on this invoice.\n"
+            "Warranty and service conditions may vary depending on the type of installation or repair."
+        )
+        subtotal_label = "Sub-total:"
+        tax_label = "Tax:"
+        total_label = "Total:"
+        signature_label = "Administrator"
+
     project_addr_str = "\n".join(
         [safe_text(a) for a in addresses if str(a).strip()]
     )
@@ -240,14 +333,7 @@ def generate_pdf(data, services, addresses):
 
     pdf.draw_header(header_data)
 
-    pdf.set_y(98)
-
-    cols = [
-        {"name": "DESCRIPTION", "w": 100},
-        {"name": "UNIT PRICE", "w": 35},
-        {"name": "QTY", "w": 20},
-        {"name": "TOTAL", "w": 35}
-    ]
+    pdf.set_y(100)
 
     pdf.set_fill_color(*pdf.azul)
     pdf.set_font("Helvetica", "B", 10)
@@ -255,14 +341,14 @@ def generate_pdf(data, services, addresses):
 
     current_x = 10
 
-    for col in cols:
-        align = "L" if col["name"] == "DESCRIPTION" else "C"
-        pdf.set_xy(current_x, 98)
-        pdf.cell(col["w"], 10, col["name"], fill=True, align=align)
+    for col in columns:
+        align = "L" if col["name"] in ["DESCRIPTION", "DESCRIPCIÓN"] else "C"
+        pdf.set_xy(current_x, 100)
+        pdf.cell(col["w"], 10, safe_text(col["name"]), fill=True, align=align)
         current_x += col["w"]
 
     total_general = 0
-    current_y = 108
+    current_y = 110
 
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(30, 30, 30)
@@ -288,10 +374,10 @@ def generate_pdf(data, services, addresses):
 
         current_x = 10
 
-        for index, col in enumerate(cols):
-            align = "L" if col["name"] == "DESCRIPTION" else "C"
+        for index, col in enumerate(columns):
+            align = "L" if index == 0 else "C"
             pdf.set_xy(current_x, current_y)
-            pdf.cell(col["w"], 9, values[index], border="B", align=align)
+            pdf.cell(col["w"], 9, safe_text(values[index]), border="B", align=align)
             current_x += col["w"]
 
         current_y += 9
@@ -310,11 +396,11 @@ def generate_pdf(data, services, addresses):
     pdf.set_xy(totals_x, totals_y + 4)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(80, 80, 80)
-    pdf.cell(40, 7, "Sub-total:", align="R")
+    pdf.cell(40, 7, subtotal_label, align="R")
     pdf.cell(40, 7, f"${total_general:,.2f}", align="R", ln=True)
 
     pdf.set_x(totals_x)
-    pdf.cell(40, 7, "Tax:", align="R")
+    pdf.cell(40, 7, tax_label, align="R")
     pdf.cell(40, 7, "$0.00", align="R", ln=True)
 
     pdf.set_fill_color(*pdf.azul)
@@ -323,26 +409,18 @@ def generate_pdf(data, services, addresses):
     pdf.set_xy(totals_x, totals_y + 29)
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(40, 12, "Total:", align="R")
+    pdf.cell(40, 12, total_label, align="R")
     pdf.cell(40, 12, f"${total_general:,.2f}", align="R")
 
     # Términos
     pdf.set_xy(10, totals_y)
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*pdf.azul)
-    pdf.cell(90, 7, "TERMS AND CONDITIONS", ln=True)
+    pdf.cell(90, 7, safe_text(terms_title), ln=True)
 
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(80, 80, 80)
-
-    terms = (
-        "Thank you for your business.\n"
-        "Payment is due according to the date listed on this invoice.\n"
-        "Warranty and service conditions may vary depending on the type "
-        "of installation or repair."
-    )
-
-    pdf.multi_cell(95, 5, terms)
+    pdf.multi_cell(95, 5, safe_text(terms_text))
 
     # Firma
     pdf.set_y(250)
@@ -356,7 +434,7 @@ def generate_pdf(data, services, addresses):
     pdf.set_xy(130, 264)
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(70, 5, "Administrator", align="C")
+    pdf.cell(70, 5, safe_text(signature_label), align="C")
 
     # Footer
     pdf.set_fill_color(*pdf.azul)
@@ -379,25 +457,35 @@ def generate_pdf(data, services, addresses):
 # =========================
 def display_pdf(pdf_bytes):
     base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-
     pdf_display = f"""
         data:application/pdf;base64,{base64_pdf}
     """
-
     st.markdown(pdf_display, unsafe_allow_html=True)
 
 
 # =========================
-# INTERFAZ PRINCIPAL
+# SIDEBAR
 # =========================
 st.title("🛠️ Peralta's Garage Doors System")
 
 with st.sidebar:
     st.header("⚙️ Business Info")
 
+    uploaded_logo = st.file_uploader(
+        "Upload Logo",
+        type=["png", "jpg", "jpeg"]
+    )
+
+    logo_path = save_uploaded_logo(uploaded_logo)
+
     my_business = st.text_input(
         "Business Name",
         "Peralta's Garage Doors"
+    )
+
+    my_subtitle = st.text_input(
+        "Business Subtitle",
+        "RESIDENCIAL Y COMERCIAL"
     )
 
     my_phone = st.text_input(
@@ -407,13 +495,40 @@ with st.sidebar:
 
     my_description = st.text_area(
         "Business Description",
-        "Residencial y Comercial\nInstalacion y Reparacion de Garajes y Motores\nEspanol"
+        "Instalacion y Reparacion de Garajes y Motores\nEspanol"
     )
 
     my_payable = st.text_input(
         "Payable to",
         "Peralta's Garage Doors"
     )
+
+    st.markdown("---")
+    st.header("🎨 PDF Design")
+
+    pdf_language = st.selectbox(
+        "PDF Language",
+        ["English", "Español"]
+    )
+
+    primary_hex = st.color_picker(
+        "Primary Color",
+        "#14325A"
+    )
+
+    accent_hex = st.color_picker(
+        "Accent Color",
+        "#BE1423"
+    )
+
+    highlight_hex = st.color_picker(
+        "Highlight Color",
+        "#F5CD46"
+    )
+
+    primary_color = hex_to_rgb(primary_hex)
+    accent_color = hex_to_rgb(accent_hex)
+    highlight_color = hex_to_rgb(highlight_hex)
 
 
 tab1, tab2 = st.tabs(["🆕 Create Invoice", "📜 Invoice History"])
@@ -611,13 +726,19 @@ with tab1:
 
             pdf_info = {
                 "business_name": my_business,
+                "business_subtitle": my_subtitle,
                 "business_description": my_description,
                 "phone": my_phone,
                 "client_name": c_name,
                 "inv_num": inv_no,
                 "date": hoy,
                 "due_date": due_date_text,
-                "payable_to": my_payable
+                "payable_to": my_payable,
+                "logo_path": logo_path,
+                "primary_color": primary_color,
+                "accent_color": accent_color,
+                "highlight_color": highlight_color,
+                "language": pdf_language
             }
 
             pdf_bytes = generate_pdf(
@@ -720,13 +841,19 @@ with tab2:
 
                             pdf_info_re = {
                                 "business_name": row["business_name"] or my_business,
+                                "business_subtitle": my_subtitle,
                                 "business_description": row["business_description"] or my_description,
                                 "phone": row["business_phone"] or my_phone,
                                 "client_name": row["cliente"],
                                 "inv_num": row["inv_num"],
                                 "date": row["fecha_hoy"],
                                 "due_date": row["due_date"] or row["fecha_hoy"],
-                                "payable_to": row["business_name"] or my_payable
+                                "payable_to": row["business_name"] or my_payable,
+                                "logo_path": logo_path,
+                                "primary_color": primary_color,
+                                "accent_color": accent_color,
+                                "highlight_color": highlight_color,
+                                "language": pdf_language
                             }
 
                             re_pdf_bytes = generate_pdf(
@@ -745,7 +872,7 @@ with tab2:
 
                     with col_delete:
                         if st.button(
-                            f"🗑️ Delete",
+                            "🗑️ Delete",
                             key=f"del_invoice_{row['id']}"
                         ):
                             try:
