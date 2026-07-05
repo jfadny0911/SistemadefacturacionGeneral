@@ -2,19 +2,14 @@ import bcrypt
 
 
 def hash_password(password: str) -> str:
-    salt = bcrypt.gensalt()
-
-    hashed = bcrypt.hashpw(
-        password.encode(),
-        salt
-    )
-
-    return hashed.decode()
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-
     return bcrypt.checkpw(
-        password.encode(),
-        password_hash.encode()
+        password.encode("utf-8"),
+        password_hash.encode("utf-8")
     )
