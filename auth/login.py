@@ -1,18 +1,9 @@
 import streamlit as st
-import mysql.connector
-
-def get_connection():
-    return mysql.connector.connect(
-        host=st.secrets["DB_HOST"],
-        user=st.secrets["DB_USER"],
-        password=st.secrets["DB_PASSWORD"],
-        database=st.secrets["DB_NAME"],
-        port=int(st.secrets["DB_PORT"])
-    )
+from database.connection import get_connection
 
 def get_user_by_email(email):
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     query = """
     SELECT
@@ -43,11 +34,16 @@ def login():
     password = st.text_input("Contraseña", type="password")
 
     if st.button("Ingresar"):
+        if not email or not password:
+            st.warning("Ingrese correo y contraseña")
+            return
+
         user = get_user_by_email(email)
 
         if user:
             st.success("Usuario encontrado")
-            st.session_state["user"] = user
             st.session_state["logged_in"] = True
+            st.session_state["user"] = user
+            st.rerun()
         else:
             st.error("Correo o contraseña incorrectos")
