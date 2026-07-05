@@ -7,6 +7,7 @@ from sqlalchemy.exc import OperationalError
 import base64
 import tempfile
 import os
+import bcrypt
 
 
 # =========================
@@ -17,7 +18,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Ocultar menú automático del sidebar
 st.markdown("""
     <style>
         [data-testid="stSidebarNav"] {
@@ -65,7 +65,7 @@ def save_uploaded_logo(uploaded_logo):
 
 
 # =========================
-# CREAR TABLAS
+# BASE DE DATOS
 # =========================
 def init_db():
     try:
@@ -97,14 +97,21 @@ def init_db():
                 )
             """))
 
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS peralta_users (
+                    id SERIAL PRIMARY KEY,
+                    full_name VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    active BOOLEAN DEFAULT TRUE,
+                    role VARCHAR(50) DEFAULT 'admin',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+
             session.commit()
 
-    except OperationalError as e:
-        try:
-            conn.reset()
-        except Exception:
-            pass
-
+    except OperationalError:
         st.error("Error de conexión con la base de datos. Reinicia la app desde Streamlit Cloud.")
         st.stop()
 
@@ -113,7 +120,166 @@ def init_db():
         st.stop()
 
 
+# =========================
+# LOGIN / USUARIOS
+# =========================
+def hash_password(password):
+    password_bytes = password.encode("utf-8")
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode("utf-8")
+
+
+def verify_password(password, password_hash):
+    return bcrypt.checkpw(
+        password.encode("utf-8"),
+        password_hash.encode("utf-8")
+    )
+
+
+def create_default_admin():
+    default_email = "admin@peraltasgarage.com"
+    default_password = "123456"
+
+    try:
+        with conn.session as session:
+            result = session.execute(
+                text("""
+                    SELECT id
+                    FROM peralta_users
+                    WHERE email = :email
+                """),
+                {"email": default_email}
+            )
+
+            user_exists = result.fetchone()
+
+            if not user_exists:
+                password_hash = hash_password(default_password)
+
+                session.execute(
+                    text("""
+                        INSERT INTO peralta_users
+                            (full_name, email, password_hash, active, role)
+                        VALUES
+                            (:full_name, :email, :password_hash, TRUE, 'admin')
+                    """),
+                    {
+                        "full_name": "Administrador",
+                        "email": default_email,
+                        "password_hash": password_hash
+                    }
+                )
+
+                session.commit()
+
+    except Exception as e:
+        st.error(f"Error creando usuario administrador: {e}")
+        st.stop()
+
+
+def get_user_by_email(email):
+    with conn.session as session:
+        result = session.execute(
+            text("""
+                SELECT
+                    id,
+                    full_name,
+                    email,
+                    password_hash,
+                    active,
+                    role
+                FROM peralta_users
+                WHERE email = :email
+            """),
+            {"email": email}
+        )
+
+        user = result.fetchone()
+
+    if user:
+        return dict(user._mapping)
+
+    return None
+
+
+def login_screen():
+    st.markdown("""
+        <style>
+            .login-box {
+                max-width: 430px;
+                margin: auto;
+                padding-top: 70px;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="login-box">', unsafe_allow_html=True)
+
+    st.title("🔐 Login")
+    st.subheader("Peralta's Garage Doors System")
+
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Ingresar", use_container_width=True):
+        if not email.strip() or not password.strip():
+            st.warning("Ingrese email y contraseña.")
+            st.stop()
+
+        user = get_user_by_email(email.strip().lower())
+
+        if not user:
+            st.error("Usuario o contraseña incorrectos.")
+            st.stop()
+
+        if not user["active"]:
+            st.error("Este usuario está desactivado.")
+            st.stop()
+
+        if verify_password(password, user["password_hash"]):
+            st.session_state["logged_in"] = True
+            st.session_state["user"] = {
+                "id": user["id"],
+                "full_name": user["full_name"],
+                "email": user["email"],
+                "role": user["role"]
+            }
+            st.rerun()
+        else:
+            st.error("Usuario o contraseña incorrectos.")
+
+    st.info("Usuario inicial: admin@peraltasgarage.com | Password: 123456")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def logout_button():
+    with st.sidebar:
+        user = st.session_state.get("user", {})
+        st.write(f"👤 **{user.get('full_name', 'Usuario')}**")
+        st.caption(f"Rol: {user.get('role', '')}")
+
+        if st.button("🚪 Cerrar sesión"):
+            st.session_state["logged_in"] = False
+            st.session_state["user"] = None
+            st.rerun()
+
+        st.markdown("---")
+
+
+# =========================
+# INICIALIZAR DB Y LOGIN
+# =========================
 init_db()
+create_default_admin()
+
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if not st.session_state["logged_in"]:
+    login_screen()
+    st.stop()
 
 
 # =========================
@@ -180,15 +346,12 @@ class ModernInvoice(FPDF):
             phone_text = "Tel:"
             payable_text = "Payable to:"
 
-        # Fondo superior
         self.set_fill_color(*self.azul)
         self.rect(0, 0, 210, 50, "F")
 
-        # Línea superior
         self.set_fill_color(*self.rojo)
         self.rect(0, 0, 210, 3, "F")
 
-        # Logo opcional
         logo_path = data.get("logo_path")
         text_start_x = 10
 
@@ -199,7 +362,6 @@ class ModernInvoice(FPDF):
             except Exception:
                 text_start_x = 10
 
-        # Nombre del negocio
         self.set_xy(text_start_x, 8)
         self.set_font("Helvetica", "B", 18)
         self.set_text_color(255, 255, 255)
@@ -225,7 +387,6 @@ class ModernInvoice(FPDF):
         self.set_text_color(255, 255, 255)
         self.cell(100, 6, f"{phone_text} {safe_text(data['phone'])}", ln=True)
 
-        # Título factura
         self.set_xy(122, 10)
         self.set_font("Helvetica", "B", 32)
         self.set_text_color(*self.amarillo)
@@ -251,11 +412,9 @@ class ModernInvoice(FPDF):
         self.set_font("Helvetica", "B", 10)
         self.cell(43, 5, safe_text(data["due_date"]), align="R", ln=True)
 
-        # Barra inferior del header
         self.set_fill_color(*self.amarillo)
         self.rect(0, 50, 210, 5, "F")
 
-        # Cliente
         self.set_xy(12, 64)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*self.rojo)
@@ -271,7 +430,6 @@ class ModernInvoice(FPDF):
         self.set_text_color(40, 40, 40)
         self.multi_cell(95, 5, safe_text(data["project_addr"]), align="L")
 
-        # Información del negocio
         self.set_xy(125, 64)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*self.azul)
@@ -400,7 +558,6 @@ def generate_pdf(data, services, addresses):
             pdf.add_page()
             current_y = 20
 
-    # Totales
     totals_x = 115
     totals_y = current_y + 12
 
@@ -426,7 +583,6 @@ def generate_pdf(data, services, addresses):
     pdf.cell(40, 12, total_label, align="R")
     pdf.cell(40, 12, f"${total_general:,.2f}", align="R")
 
-    # Términos
     pdf.set_xy(10, totals_y)
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*pdf.azul)
@@ -436,7 +592,6 @@ def generate_pdf(data, services, addresses):
     pdf.set_text_color(80, 80, 80)
     pdf.multi_cell(95, 5, safe_text(terms_text))
 
-    # Firma
     pdf.set_y(250)
     pdf.set_font("Times", "BI", 16)
     pdf.set_text_color(*pdf.azul)
@@ -450,7 +605,6 @@ def generate_pdf(data, services, addresses):
     pdf.set_text_color(100, 100, 100)
     pdf.cell(70, 5, safe_text(signature_label), align="C")
 
-    # Footer
     pdf.set_fill_color(*pdf.azul)
     pdf.rect(0, 282, 210, 15, "F")
 
@@ -478,9 +632,11 @@ def display_pdf(pdf_bytes):
 
 
 # =========================
-# SIDEBAR
+# INTERFAZ PRINCIPAL
 # =========================
 st.title("🛠️ Peralta's Garage Doors System")
+
+logout_button()
 
 with st.sidebar:
     st.header("⚙️ Business Info")
@@ -669,7 +825,7 @@ with tab1:
 
                 res = session.execute(
                     text("""
-                        INSERT INTO peralta_invoices 
+                        INSERT INTO peralta_invoices
                             (
                                 inv_num,
                                 cliente,
@@ -681,7 +837,7 @@ with tab1:
                                 business_phone,
                                 business_description
                             )
-                        VALUES 
+                        VALUES
                             (
                                 :inv,
                                 :clie,
@@ -713,14 +869,14 @@ with tab1:
                 for s in valid_services:
                     session.execute(
                         text("""
-                            INSERT INTO peralta_invoice_items 
+                            INSERT INTO peralta_invoice_items
                                 (
                                     invoice_id,
                                     description,
                                     quantity,
                                     unit_price
                                 )
-                            VALUES 
+                            VALUES
                                 (
                                     :invoice_id,
                                     :description,
@@ -792,7 +948,7 @@ with tab2:
         with conn.session as session:
             result = session.execute(
                 text("""
-                    SELECT 
+                    SELECT
                         id,
                         inv_num,
                         cliente,
@@ -835,7 +991,7 @@ with tab2:
                             with conn.session as session:
                                 items_result = session.execute(
                                     text("""
-                                        SELECT 
+                                        SELECT
                                             description AS desc,
                                             quantity AS qty,
                                             unit_price AS price
