@@ -1,8 +1,14 @@
 import os
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
 
-print("HOST:", os.getenv("DB_HOST"))
-print("USER:", os.getenv("DB_USER"))
-print("PASSWORD:", os.getenv("npg_GoYV91BEJlZd"))
+def get_connection():
+    return psycopg2.connect(
+        host=os.getenv("PGHOST"),
+        database=os.getenv("PGDATABASE"),
+        user=os.getenv("PGUSER"),
+        password=os.getenv("PGPASSWORD"),
+        sslmode=os.getenv("PGSSLMODE", "require"),
+    )
