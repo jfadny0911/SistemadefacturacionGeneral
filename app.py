@@ -24,29 +24,7 @@ conn = st.connection("postgresql", type="sql")
 # =========================
 # CREAR TABLAS SI NO EXISTEN
 # =========================
-def init_db():
-    with conn.session as session:
-        session.execute(text("""
-            CREATE TABLE IF NOT EXISTS peralta_invoices (
-                id SERIAL PRIMARY KEY,
-                inv_num VARCHAR(100) NOT NULL,
-                cliente VARCHAR(255) NOT NULL,
-                project_addr TEXT,
-                total_amount NUMERIC(12, 2) DEFAULT 0,
-                fecha_hoy VARCHAR(50),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """))
 
-        session.execute(text("""
-            CREATE TABLE IF NOT EXISTS peralta_invoice_items (
-                id SERIAL PRIMARY KEY,
-                invoice_id INTEGER REFERENCES peralta_invoices(id) ON DELETE CASCADE,
-                description TEXT NOT NULL,
-                quantity INTEGER NOT NULL,
-                unit_price NUMERIC(12, 2) NOT NULL
-            )
-        """))
 
         session.commit()
 
@@ -68,7 +46,37 @@ if "service_rows" not in st.session_state:
 
 
 # =========================
-# CLASE PDF
+# CLASE PDFdef init_db():
+    with conn.session as session:
+        session.execute(text("""
+            CREATE TABLE IF NOT EXISTS peralta_invoices (
+                id SERIAL PRIMARY KEY,
+                inv_num VARCHAR(100) NOT NULL,
+                cliente VARCHAR(255) NOT NULL,
+                project_addr TEXT,
+                total_amount NUMERIC(12, 2) DEFAULT 0,
+                fecha_hoy VARCHAR(50),
+                due_date VARCHAR(50),
+                business_name VARCHAR(255) DEFAULT 'Peralta''s Garage Doors',
+                business_phone VARCHAR(50) DEFAULT '832-752-0930',
+                business_description TEXT DEFAULT 'Residencial y Comercial - Instalacion y Reparacion de Garajes y Motores - Espanol',
+                status VARCHAR(50) DEFAULT 'Paid',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
+        session.execute(text("""
+            CREATE TABLE IF NOT EXISTS peralta_invoice_items (
+                id SERIAL PRIMARY KEY,
+                invoice_id INTEGER NOT NULL REFERENCES peralta_invoices(id) ON DELETE CASCADE,
+                description TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                unit_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
+                line_total NUMERIC(12, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED
+            )
+        """))
+
+        session.commit()
 # =========================
 class ModernInvoice(FPDF):
 
