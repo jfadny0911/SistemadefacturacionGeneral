@@ -14,6 +14,15 @@ st.set_page_config(
     layout="wide"
 )
 
+# Ocultar menú automático de páginas del sidebar
+st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 
 # =========================
 # CONEXIÓN A NEON
@@ -22,31 +31,18 @@ conn = st.connection("postgresql", type="sql")
 
 
 # =========================
-# CREAR TABLAS SI NO EXISTEN
+# FUNCIÓN PARA TEXTO SEGURO EN PDF
 # =========================
-
-
-        session.commit()
-
-
-
-init_db()
+def safe_text(value):
+    if value is None:
+        return ""
+    return str(value).encode("latin-1", "replace").decode("latin-1")
 
 
 # =========================
-# ESTADOS DE STREAMLIT
+# CREAR TABLAS
 # =========================
-if "address_rows" not in st.session_state:
-    st.session_state.address_rows = [""]
-
-if "service_rows" not in st.session_state:
-    st.session_state.service_rows = [
-        {"desc": "", "qty": 1, "price": 0.0}
-    ]
-
-
-# =========================
-# CLASE PDFdef init_db():
+def init_db():
     with conn.session as session:
         session.execute(text("""
             CREATE TABLE IF NOT EXISTS peralta_invoices (
@@ -77,6 +73,25 @@ if "service_rows" not in st.session_state:
         """))
 
         session.commit()
+
+
+init_db()
+
+
+# =========================
+# ESTADOS DE STREAMLIT
+# =========================
+if "address_rows" not in st.session_state:
+    st.session_state.address_rows = [""]
+
+if "service_rows" not in st.session_state:
+    st.session_state.service_rows = [
+        {"desc": "", "qty": 1, "price": 0.0}
+    ]
+
+
+# =========================
+# CLASE PDF
 # =========================
 class ModernInvoice(FPDF):
 
@@ -94,15 +109,15 @@ class ModernInvoice(FPDF):
         self.set_fill_color(*self.rojo)
         self.rect(0, 0, 210, 3, "F")
 
-        # Título negocio
+        # Nombre del negocio
         self.set_xy(10, 9)
         self.set_font("Helvetica", "B", 20)
         self.set_text_color(255, 255, 255)
-        self.cell(110, 8, "PERALTA'S GARAGE DOORS", ln=True)
+        self.cell(110, 8, safe_text(data["business_name"]), ln=True)
 
         self.set_x(10)
         self.set_font("Helvetica", "B", 10)
-        self.set_text_color(245, 205, 70)
+        self.set_text_color(*self.amarillo)
         self.cell(110, 6, "RESIDENCIAL Y COMERCIAL", ln=True)
 
         self.set_x(10)
@@ -111,40 +126,40 @@ class ModernInvoice(FPDF):
         self.multi_cell(
             100,
             5,
-            "Instalacion y Reparacion de Garajes y Motores\nEspanol",
+            safe_text(data["business_description"]),
             align="L"
         )
 
         self.set_x(10)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(255, 255, 255)
-        self.cell(100, 7, f"Tel: {data['phone']}", ln=True)
+        self.cell(100, 7, f"Tel: {safe_text(data['phone'])}", ln=True)
 
-        # Invoice title
+        # Título Invoice
         self.set_xy(120, 10)
         self.set_font("Helvetica", "B", 34)
         self.set_text_color(*self.amarillo)
         self.cell(80, 14, "INVOICE", align="R")
 
         self.set_text_color(255, 255, 255)
-        self.set_font("Helvetica", "", 10)
 
         self.set_xy(125, 28)
+        self.set_font("Helvetica", "", 10)
         self.cell(30, 5, "Invoice No:")
         self.set_font("Helvetica", "B", 10)
-        self.cell(45, 5, f"#{data['inv_num']}", align="R", ln=True)
+        self.cell(45, 5, f"#{safe_text(data['inv_num'])}", align="R", ln=True)
 
         self.set_xy(125, 34)
         self.set_font("Helvetica", "", 10)
         self.cell(30, 5, "Date:")
         self.set_font("Helvetica", "B", 10)
-        self.cell(45, 5, f"{data['date']}", align="R", ln=True)
+        self.cell(45, 5, safe_text(data["date"]), align="R", ln=True)
 
         self.set_xy(125, 40)
         self.set_font("Helvetica", "", 10)
         self.cell(30, 5, "Due Date:")
         self.set_font("Helvetica", "B", 10)
-        self.cell(45, 5, f"{data['due_date']}", align="R", ln=True)
+        self.cell(45, 5, safe_text(data["due_date"]), align="R", ln=True)
 
         # Barra amarilla
         self.set_fill_color(*self.amarillo)
@@ -159,21 +174,21 @@ class ModernInvoice(FPDF):
         self.set_x(12)
         self.set_font("Helvetica", "B", 15)
         self.set_text_color(*self.azul)
-        self.cell(100, 7, data["client_name"].upper(), ln=True)
+        self.cell(100, 7, safe_text(data["client_name"]).upper(), ln=True)
 
         self.set_x(12)
         self.set_font("Helvetica", "", 10)
         self.set_text_color(40, 40, 40)
-        self.multi_cell(95, 5, data["project_addr"], align="L")
+        self.multi_cell(95, 5, safe_text(data["project_addr"]), align="L")
 
-        # Información de pago
+        # Información del negocio
         self.set_xy(125, 62)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*self.azul)
         self.cell(75, 6, "BUSINESS INFO", ln=True)
 
         self.set_draw_color(*self.rojo)
-        self.line(125, 69, 170, 69)
+        self.line(125, 69, 175, 69)
 
         self.set_xy(125, 73)
         self.set_font("Helvetica", "", 10)
@@ -181,7 +196,10 @@ class ModernInvoice(FPDF):
         self.multi_cell(
             75,
             5,
-            f"Payable to: {data['payable_to']}\nPhone: {data['phone']}",
+            safe_text(
+                f"Payable to: {data['payable_to']}\n"
+                f"Phone: {data['phone']}"
+            ),
             align="L"
         )
 
@@ -191,7 +209,7 @@ class ModernInvoice(FPDF):
 # =========================
 def generate_pdf(data, services, addresses):
     project_addr_str = "\n".join(
-        [a for a in addresses if str(a).strip()]
+        [safe_text(a) for a in addresses if str(a).strip()]
     )
 
     pdf = ModernInvoice()
@@ -216,6 +234,7 @@ def generate_pdf(data, services, addresses):
     pdf.set_text_color(255, 255, 255)
 
     current_x = 10
+
     for col in cols:
         align = "L" if col["name"] == "DESCRIPTION" else "C"
         pdf.set_xy(current_x, 98)
@@ -230,7 +249,7 @@ def generate_pdf(data, services, addresses):
     pdf.set_draw_color(210, 210, 210)
 
     for service in services:
-        desc = str(service["desc"]).strip()
+        desc = safe_text(service["desc"]).strip()
         qty = int(service["qty"])
         price = float(service["price"])
 
@@ -295,18 +314,21 @@ def generate_pdf(data, services, addresses):
 
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(80, 80, 80)
+
     terms = (
         "Thank you for your business.\n"
         "Payment is due according to the date listed on this invoice.\n"
-        "Warranty and service conditions may vary depending on the type of installation or repair."
+        "Warranty and service conditions may vary depending on the type "
+        "of installation or repair."
     )
+
     pdf.multi_cell(95, 5, terms)
 
     # Firma
     pdf.set_y(250)
     pdf.set_font("Times", "BI", 16)
     pdf.set_text_color(*pdf.azul)
-    pdf.cell(0, 8, "Peralta's Garage Doors", align="R", ln=True)
+    pdf.cell(0, 8, safe_text(data["business_name"]), align="R", ln=True)
 
     pdf.set_draw_color(*pdf.azul)
     pdf.line(130, 262, 200, 262)
@@ -327,7 +349,7 @@ def generate_pdf(data, services, addresses):
     output = pdf.output(dest="S")
 
     if isinstance(output, str):
-        return output.encode("latin1")
+        return output.encode("latin-1")
 
     return bytes(output)
 
@@ -337,14 +359,16 @@ def generate_pdf(data, services, addresses):
 # =========================
 def display_pdf(pdf_bytes):
     base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+
     pdf_display = f"""
         data:application/pdf;base64,{base64_pdf}
     """
+
     st.markdown(pdf_display, unsafe_allow_html=True)
 
 
 # =========================
-# INTERFAZ
+# INTERFAZ PRINCIPAL
 # =========================
 st.title("🛠️ Peralta's Garage Doors System")
 
@@ -361,7 +385,7 @@ with st.sidebar:
         "832-752-0930"
     )
 
-    my_address = st.text_area(
+    my_description = st.text_area(
         "Business Description",
         "Residencial y Comercial\nInstalacion y Reparacion de Garajes y Motores\nEspanol"
     )
@@ -376,7 +400,7 @@ tab1, tab2 = st.tabs(["🆕 Create Invoice", "📜 Invoice History"])
 
 
 # =========================
-# CREAR FACTURA
+# TAB 1 - CREAR FACTURA
 # =========================
 with tab1:
     st.subheader("👤 Invoice & Client Details")
@@ -400,6 +424,10 @@ with tab1:
 
         if col_del.button("🗑️", key=f"del_a_{i}"):
             st.session_state.address_rows.pop(i)
+
+            if len(st.session_state.address_rows) == 0:
+                st.session_state.address_rows.append("")
+
             st.rerun()
 
     if st.button("➕ Add Address"):
@@ -423,6 +451,7 @@ with tab1:
             "Qty",
             min_value=1,
             value=int(serv["qty"]),
+            step=1,
             key=f"q_{i}"
         )
 
@@ -441,6 +470,12 @@ with tab1:
 
         if x.button("🗑️", key=f"del_s_{i}"):
             st.session_state.service_rows.pop(i)
+
+            if len(st.session_state.service_rows) == 0:
+                st.session_state.service_rows.append(
+                    {"desc": "", "qty": 1, "price": 0.0}
+                )
+
             st.rerun()
 
     st.info(f"### Total: ${current_total:,.2f}")
@@ -462,20 +497,50 @@ with tab1:
             st.warning("Please enter the client name.")
             st.stop()
 
+        valid_services = [
+            s for s in st.session_state.service_rows
+            if str(s["desc"]).strip()
+        ]
+
+        if not valid_services:
+            st.warning("Please enter at least one service.")
+            st.stop()
+
         hoy = datetime.now().strftime("%m/%d/%Y")
+        due_date_text = due_d.strftime("%m/%d/%Y")
 
         try:
             with conn.session as session:
                 all_addrs = " | ".join(
-                    [a for a in st.session_state.address_rows if a.strip()]
+                    [a for a in st.session_state.address_rows if str(a).strip()]
                 )
 
                 res = session.execute(
                     text("""
-                        INSERT INTO invoices 
-                            (inv_num, cliente, project_addr, total_amount, fecha_hoy)
+                        INSERT INTO peralta_invoices 
+                            (
+                                inv_num,
+                                cliente,
+                                project_addr,
+                                total_amount,
+                                fecha_hoy,
+                                due_date,
+                                business_name,
+                                business_phone,
+                                business_description
+                            )
                         VALUES 
-                            (:inv, :clie, :proj, :total, :hoy)
+                            (
+                                :inv,
+                                :clie,
+                                :proj,
+                                :total,
+                                :hoy,
+                                :due_date,
+                                :business_name,
+                                :business_phone,
+                                :business_description
+                            )
                         RETURNING id
                     """),
                     {
@@ -483,39 +548,52 @@ with tab1:
                         "clie": c_name,
                         "proj": all_addrs,
                         "total": float(current_total),
-                        "hoy": hoy
+                        "hoy": hoy,
+                        "due_date": due_date_text,
+                        "business_name": my_business,
+                        "business_phone": my_phone,
+                        "business_description": my_description
                     }
                 )
 
                 invoice_id = res.fetchone()[0]
 
-                for s in st.session_state.service_rows:
-                    if str(s["desc"]).strip():
-                        session.execute(
-                            text("""
-                                INSERT INTO invoice_items 
-                                    (invoice_id, description, quantity, unit_price)
-                                VALUES 
-                                    (:iid, :desc, :qty, :price)
-                            """),
-                            {
-                                "iid": invoice_id,
-                                "desc": s["desc"],
-                                "qty": int(s["qty"]),
-                                "price": float(s["price"])
-                            }
-                        )
+                for s in valid_services:
+                    session.execute(
+                        text("""
+                            INSERT INTO peralta_invoice_items 
+                                (
+                                    invoice_id,
+                                    description,
+                                    quantity,
+                                    unit_price
+                                )
+                            VALUES 
+                                (
+                                    :invoice_id,
+                                    :description,
+                                    :quantity,
+                                    :unit_price
+                                )
+                        """),
+                        {
+                            "invoice_id": invoice_id,
+                            "description": s["desc"],
+                            "quantity": int(s["qty"]),
+                            "unit_price": float(s["price"])
+                        }
+                    )
 
                 session.commit()
 
             pdf_info = {
-                "address": my_address,
+                "business_name": my_business,
+                "business_description": my_description,
                 "phone": my_phone,
-                "email": "",
                 "client_name": c_name,
                 "inv_num": inv_no,
                 "date": hoy,
-                "due_date": due_d.strftime("%m/%d/%Y"),
+                "due_date": due_date_text,
                 "payable_to": my_payable
             }
 
@@ -542,7 +620,7 @@ with tab1:
 
 
 # =========================
-# HISTORIAL
+# TAB 2 - HISTORIAL
 # =========================
 with tab2:
     st.subheader("📜 Saved Invoices")
@@ -552,13 +630,17 @@ with tab2:
             result = session.execute(
                 text("""
                     SELECT 
-                        id, 
-                        inv_num, 
-                        cliente, 
-                        total_amount, 
-                        fecha_hoy, 
-                        project_addr
-                    FROM invoices
+                        id,
+                        inv_num,
+                        cliente,
+                        total_amount,
+                        fecha_hoy,
+                        due_date,
+                        project_addr,
+                        business_name,
+                        business_phone,
+                        business_description
+                    FROM peralta_invoices
                     ORDER BY id DESC
                 """)
             )
@@ -573,6 +655,10 @@ with tab2:
                 with st.expander(
                     f"📅 {row['fecha_hoy']} | Invoice: {row['inv_num']} | Client: {row['cliente']}"
                 ):
+                    st.write(f"**Client:** {row['cliente']}")
+                    st.write(f"**Invoice #:** {row['inv_num']}")
+                    st.write(f"**Date:** {row['fecha_hoy']}")
+                    st.write(f"**Due Date:** {row['due_date']}")
                     st.write(f"**Total:** ${float(row['total_amount']):,.2f}")
                     st.write(f"**Addresses:** {row['project_addr']}")
 
@@ -587,7 +673,7 @@ with tab2:
                                         description AS desc,
                                         quantity AS qty,
                                         unit_price AS price
-                                    FROM invoice_items
+                                    FROM peralta_invoice_items
                                     WHERE invoice_id = :invoice_id
                                 """),
                                 {"invoice_id": int(row["id"])}
@@ -602,14 +688,14 @@ with tab2:
                         addr_list = str(row["project_addr"]).split(" | ")
 
                         pdf_info_re = {
-                            "address": my_address,
-                            "phone": my_phone,
-                            "email": "",
+                            "business_name": row["business_name"] or my_business,
+                            "business_description": row["business_description"] or my_description,
+                            "phone": row["business_phone"] or my_phone,
                             "client_name": row["cliente"],
                             "inv_num": row["inv_num"],
                             "date": row["fecha_hoy"],
-                            "due_date": row["fecha_hoy"],
-                            "payable_to": my_payable
+                            "due_date": row["due_date"] or row["fecha_hoy"],
+                            "payable_to": row["business_name"] or my_payable
                         }
 
                         re_pdf_bytes = generate_pdf(
@@ -625,6 +711,7 @@ with tab2:
                             mime="application/pdf",
                             key=f"dl_{row['id']}"
                         )
+
         else:
             st.info("No invoices found.")
 
