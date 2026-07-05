@@ -76,6 +76,21 @@ def init_db():
 
 
 init_db()
+def get_next_invoice_number():
+    try:
+        with conn.session as session:
+            result = session.execute(
+                text("""
+                    SELECT COALESCE(MAX(id), 0) + 1 AS next_id
+                    FROM peralta_invoices
+                """)
+            )
+            next_id = result.fetchone()[0]
+
+        return f"PGD-{int(next_id):04d}"
+
+    except Exception:
+        return "PGD-0001"
 
 
 # =========================
