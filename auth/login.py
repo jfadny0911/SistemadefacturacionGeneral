@@ -6,7 +6,7 @@ from auth.security import verify_password
 
 def login():
 
-    st.title("PG Manager")
+    st.title("🔐 PG Manager")
 
     email = st.text_input("Correo")
 
@@ -25,12 +25,14 @@ def login():
             """
             SELECT
                 id,
-                full_name,
-                password_hash
+                first_name,
+                last_name,
+                password_hash,
+                active
 
             FROM users
 
-            WHERE email=%s
+            WHERE email = %s
             """,
             (email,)
         )
@@ -38,19 +40,26 @@ def login():
         user = cursor.fetchone()
 
         cursor.close()
-
         conn.close()
 
-        if user:
+        if user is None:
+            st.error("Correo o contraseña incorrectos")
+            return
 
-            if verify_password(password, user[2]):
+        if not user[4]:
+            st.error("Usuario inactivo")
+            return
 
-                st.session_state.logged = True
+        if verify_password(password, user[3]):
 
-                st.session_state.user_id = user[0]
+            st.session_state.logged = True
 
-                st.session_state.user_name = user[1]
+            st.session_state.user_id = user[0]
 
-                st.rerun()
+            st.session_state.user_name = f"{user[1]} {user[2]}"
 
-        st.error("Correo o contraseña incorrectos")
+            st.rerun()
+
+        else:
+
+            st.error("Correo o contraseña incorrectos")
