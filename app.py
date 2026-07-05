@@ -27,45 +27,21 @@ conn = st.connection("postgresql", type="sql")
 def init_db():
     with conn.session as session:
         session.execute(text("""
-            CREATE TABLE IF NOT EXISTS invoices (
-                id SERIAL PRIMARY KEY
+            CREATE TABLE IF NOT EXISTS peralta_invoices (
+                id SERIAL PRIMARY KEY,
+                inv_num VARCHAR(100) NOT NULL,
+                cliente VARCHAR(255) NOT NULL,
+                project_addr TEXT,
+                total_amount NUMERIC(12, 2) DEFAULT 0,
+                fecha_hoy VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
 
         session.execute(text("""
-            ALTER TABLE invoices 
-            ADD COLUMN IF NOT EXISTS inv_num VARCHAR(100)
-        """))
-
-        session.execute(text("""
-            ALTER TABLE invoices 
-            ADD COLUMN IF NOT EXISTS cliente VARCHAR(255)
-        """))
-
-        session.execute(text("""
-            ALTER TABLE invoices 
-            ADD COLUMN IF NOT EXISTS project_addr TEXT
-        """))
-
-        session.execute(text("""
-            ALTER TABLE invoices 
-            ADD COLUMN IF NOT EXISTS total_amount NUMERIC(12, 2) DEFAULT 0
-        """))
-
-        session.execute(text("""
-            ALTER TABLE invoices 
-            ADD COLUMN IF NOT EXISTS fecha_hoy VARCHAR(50)
-        """))
-
-        session.execute(text("""
-            ALTER TABLE invoices 
-            ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        """))
-
-        session.execute(text("""
-            CREATE TABLE IF NOT EXISTS invoice_items (
+            CREATE TABLE IF NOT EXISTS peralta_invoice_items (
                 id SERIAL PRIMARY KEY,
-                invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
+                invoice_id INTEGER REFERENCES peralta_invoices(id) ON DELETE CASCADE,
                 description TEXT NOT NULL,
                 quantity INTEGER NOT NULL,
                 unit_price NUMERIC(12, 2) NOT NULL
@@ -73,6 +49,7 @@ def init_db():
         """))
 
         session.commit()
+
 
 
 init_db()
