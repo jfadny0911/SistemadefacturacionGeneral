@@ -3,7 +3,17 @@ from database.connection import get_connection
 from auth.security import hash_password
 
 
-def setup_page():
+def system_installed():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM companies")
+    count = cursor.fetchone()[0]
+
+    cursor.close()
+    conn.close()
+
+    return count > 0
 
     st.set_page_config(
         page_title="Instalación - PG Manager",
