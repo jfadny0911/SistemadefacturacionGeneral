@@ -1,4 +1,3 @@
-import streamlit as st
 from database.connection import get_connection
 from auth.security import hash_password
 
@@ -15,255 +14,133 @@ def system_installed():
 
     return count > 0
 
-    st.set_page_config(
-        page_title="Instalación - PG Manager",
-        page_icon="🚪",
-        layout="centered"
-    )
 
-    st.title("🚪 Bienvenido a PG Manager")
+def create_company(
+    company_name,
+    trade_name,
+    tax_id,
+    email,
+    phone,
+    website,
+    address,
+    city,
+    state,
+    country,
+    postal_code,
+    primary_color,
+    secondary_color,
+    currency,
+    language
+):
 
-    st.write(
-        "Esta parece ser la primera vez que ejecuta el sistema."
-    )
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    st.divider()
-
-    # ======================================================
-    # EMPRESA
-    # ======================================================
-
-    st.subheader("🏢 Información de la empresa")
-
-    company_name = st.text_input(
-        "Nombre de la empresa *"
-    )
-
-    trade_name = st.text_input(
-        "Nombre comercial"
-    )
-
-    company_email = st.text_input(
-        "Correo electrónico"
-    )
-
-    phone = st.text_input(
-        "Teléfono"
-    )
-
-    website = st.text_input(
-        "Sitio web"
-    )
-
-    address = st.text_input(
-        "Dirección"
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        city = st.text_input(
-            "Ciudad"
+    cursor.execute("""
+        INSERT INTO companies(
+            company_name,
+            trade_name,
+            tax_id,
+            email,
+            phone,
+            website,
+            address,
+            city,
+            state,
+            country,
+            postal_code,
+            primary_color,
+            secondary_color,
+            currency,
+            language,
+            terms_conditions,
+            active
         )
 
-        country = st.text_input(
-            "País",
-            value="USA"
+        VALUES(
+            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+            %s,%s,%s,%s,%s,%s,TRUE
         )
 
-    with col2:
+        RETURNING id
+    """, (
 
-        state = st.text_input(
-            "Estado"
+        company_name,
+        trade_name,
+        tax_id,
+        email,
+        phone,
+        website,
+        address,
+        city,
+        state,
+        country,
+        postal_code,
+        primary_color,
+        secondary_color,
+        currency,
+        language,
+        "Gracias por su preferencia."
+
+    ))
+
+    company_id = cursor.fetchone()[0]
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    return company_id
+
+
+def create_admin(
+    company_id,
+    first_name,
+    last_name,
+    email,
+    password
+):
+
+    password_hash = hash_password(password)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO users(
+            company_id,
+            first_name,
+            last_name,
+            email,
+            password_hash,
+            role,
+            active
         )
 
-        postal_code = st.text_input(
-            "Código Postal"
+        VALUES(
+            %s,%s,%s,%s,%s,%s,TRUE
         )
 
-    tax_id = st.text_input(
-        "Tax ID"
-    )
+        RETURNING id
+    """, (
 
-    st.divider()
+        company_id,
+        first_name,
+        last_name,
+        email,
+        password_hash,
+        "admin"
 
-    # ======================================================
-    # CONFIGURACIÓN
-    # ======================================================
+    ))
 
-    st.subheader("⚙ Configuración")
+    user_id = cursor.fetchone()[0]
 
-    col1, col2 = st.columns(2)
+    conn.commit()
 
-    with col1:
+    cursor.close()
+    conn.close()
 
-        currency = st.selectbox(
-            "Moneda",
-            [
-                "USD",
-                "EUR",
-                "MXN",
-                "CRC",
-                "GTQ"
-            ]
-        )
-
-    with col2:
-
-        language = st.selectbox(
-            "Idioma",
-            [
-                "Español",
-                "English"
-            ]
-        )
-
-    primary_color = st.color_picker(
-        "Color principal",
-        "#C8102E"
-    )
-
-    secondary_color = st.color_picker(
-        "Color secundario",
-        "#000000"
-    )
-
-    st.divider()
-
-    # ======================================================
-    # ADMINISTRADOR
-    # ======================================================
-
-    st.subheader("👤 Administrador")
-
-    first_name = st.text_input(
-        "Nombre *"
-    )
-
-    last_name = st.text_input(
-        "Apellido *"
-    )
-
-    admin_email = st.text_input(
-        "Correo del administrador *"
-    )
-
-    password = st.text_input(
-        "Contraseña *",
-        type="password"
-    )
-
-    confirm_password = st.text_input(
-        "Confirmar contraseña *",
-        type="password"
-    )
-
-    st.divider()
-
-    # ======================================================
-    # BOTÓN
-    # ======================================================
-
-    if st.button(
-        "🚀 Instalar Sistema",
-        use_container_width=True
-    ):
-
-        # ==========================
-        # VALIDACIONES
-        # ==========================
-
-        if company_name == "":
-            st.error("Ingrese el nombre de la empresa.")
-            st.stop()
-
-        if first_name == "":
-            st.error("Ingrese el nombre del administrador.")
-            st.stop()
-
-        if admin_email == "":
-            st.error("Ingrese el correo del administrador.")
-            st.stop()
-
-        if password == "":
-            st.error("Ingrese una contraseña.")
-            st.stop()
-
-        if password != confirm_password:
-            st.error("Las contraseñas no coinciden.")
-            st.stop()
-
-        # ==========================
-        # CREAR EMPRESA
-        # ==========================
-
-        company_id = create_company(
-
-            company_name=company_name,
-
-            trade_name=trade_name,
-
-            tax_id=tax_id,
-
-            email=company_email,
-
-            phone=phone,
-
-            website=website,
-
-            address=address,
-
-            city=city,
-
-            state=state,
-
-            country=country,
-
-            postal_code=postal_code,
-
-            primary_color=primary_color,
-
-            secondary_color=secondary_color,
-
-            currency=currency,
-
-            language=language
-
-        )
-
-        # ==========================
-        # CREAR ADMIN
-        # ==========================
-
-        user = create_admin(
-
-            company_id=company_id,
-
-            first_name=first_name,
-
-            last_name=last_name,
-
-            email=admin_email,
-
-            password=password
-
-        )
-
-        # ==========================
-        # LOGIN AUTOMÁTICO
-        # ==========================
-
-        st.session_state.logged = True
-
-        st.session_state.user_id = user["id"]
-
-        st.session_state.company_id = company_id
-
-        st.session_state.user_name = (
-            first_name + " " + last_name
-        )
-
-        st.success("Sistema instalado correctamente.")
-
-        st.rerun()
+    return {
+        "id": user_id
+    }
