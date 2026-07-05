@@ -1,14 +1,12 @@
-import os
+import streamlit as st
 import psycopg2
-from dotenv import load_dotenv
-
-load_dotenv()
 
 def get_connection():
     return psycopg2.connect(
-        host=os.getenv("PGHOST"),
-        database=os.getenv("PGDATABASE"),
-        user=os.getenv("PGUSER"),
-        password=os.getenv("PGPASSWORD"),
-        sslmode=os.getenv("PGSSLMODE", "require"),
+        host=st.secrets["DB_HOST"],
+        database=st.secrets["DB_NAME"],
+        user=st.secrets["DB_USER"],
+        password=st.secrets["DB_PASSWORD"],
+        port=st.secrets["DB_PORT"],
+        sslmode=st.secrets["DB_SSLMODE"],
     )
