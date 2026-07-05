@@ -1,11 +1,12 @@
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
+from database.connection import get_connection
 import streamlit as st
 
-st.write("HOST:", os.getenv("DB_HOST"))
-st.write("USER:", os.getenv("DB_USER"))
-st.write("DATABASE:", os.getenv("DB_NAME"))
-st.write("PASSWORD:", os.getenv("DB_PASSWORD"))
+st.title("Prueba de conexión")
+
+try:
+    conn = get_connection()
+    st.success("✅ Conectado correctamente a Neon")
+    conn.close()
+
+except Exception as e:
+    st.error(e)
