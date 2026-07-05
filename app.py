@@ -1,9 +1,11 @@
-import streamlit as st
-from database.connection import get_connection
+import os
+from dotenv import load_dotenv
 
-try:
-    conn = get_connection()
-    st.sidebar.success("✅ Conectado a Neon")
-    conn.close()
-except Exception as e:
-    st.sidebar.error(f"❌ {e}")
+load_dotenv()
+
+import streamlit as st
+
+st.write("HOST:", os.getenv("DB_HOST"))
+st.write("USER:", os.getenv("DB_USER"))
+st.write("DATABASE:", os.getenv("DB_NAME"))
+st.write("PASSWORD:", os.getenv("DB_PASSWORD"))
