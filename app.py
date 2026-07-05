@@ -64,6 +64,20 @@ def save_uploaded_logo(uploaded_logo):
     return temp_file.name
 
 
+def hash_password(password):
+    password_bytes = password.encode("utf-8")
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode("utf-8")
+
+
+def verify_password(password, password_hash):
+    return bcrypt.checkpw(
+        password.encode("utf-8"),
+        password_hash.encode("utf-8")
+    )
+
+
 # =========================
 # BASE DE DATOS
 # =========================
@@ -104,8 +118,34 @@ def init_db():
                     email VARCHAR(255) UNIQUE NOT NULL,
                     password_hash TEXT NOT NULL,
                     active BOOLEAN DEFAULT TRUE,
-                    role VARCHAR(50) DEFAULT 'admin',
+                    role VARCHAR(50) DEFAULT 'user',
+                    must_change_password BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+
+            session.execute(text("""
+                ALTER TABLE peralta_users
+                ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE
+            """))
+
+            session.execute(text("""
+                ALTER TABLE peralta_users
+                ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE
+            """))
+
+            session.execute(text("""
+                ALTER TABLE peralta_users
+                ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user'
+            """))
+
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS peralta_password_resets (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    status VARCHAR(50) DEFAULT 'pending',
+                    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP
                 )
             """))
 
@@ -120,64 +160,78 @@ def init_db():
         st.stop()
 
 
-# =========================
-# LOGIN / USUARIOS
-# =========================
-def hash_password(password):
-    password_bytes = password.encode("utf-8")
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password_bytes, salt)
-    return hashed.decode("utf-8")
-
-
-def verify_password(password, password_hash):
-    return bcrypt.checkpw(
-        password.encode("utf-8"),
-        password_hash.encode("utf-8")
-    )
-
-
-def create_default_admin():
-    default_email = "admin@peraltasgarage.com"
-    default_password = "123456"
+def create_default_users():
+    default_users = [
+        {
+            "full_name": "Administrador",
+            "email": "admin@peraltasgarage.com",
+            "password": "Admin123!",
+            "role": "admin"
+        },
+        {
+            "full_name": "Usuario",
+            "email": "user@peraltasgarage.com",
+            "password": "User123!",
+            "role": "user"
+        }
+    ]
 
     try:
         with conn.session as session:
-            result = session.execute(
-                text("""
-                    SELECT id
-                    FROM peralta_users
-                    WHERE email = :email
-                """),
-                {"email": default_email}
-            )
-
-            user_exists = result.fetchone()
-
-            if not user_exists:
-                password_hash = hash_password(default_password)
-
-                session.execute(
+            for user_data in default_users:
+                result = session.execute(
                     text("""
-                        INSERT INTO peralta_users
-                            (full_name, email, password_hash, active, role)
-                        VALUES
-                            (:full_name, :email, :password_hash, TRUE, 'admin')
+                        SELECT id
+                        FROM peralta_users
+                        WHERE email = :email
                     """),
-                    {
-                        "full_name": "Administrador",
-                        "email": default_email,
-                        "password_hash": password_hash
-                    }
+                    {"email": user_data["email"]}
                 )
 
-                session.commit()
+                user_exists = result.fetchone()
+
+                if not user_exists:
+                    password_hash = hash_password(user_data["password"])
+
+                    session.execute(
+                        text("""
+                            INSERT INTO peralta_users
+                                (
+                                    full_name,
+                                    email,
+                                    password_hash,
+                                    active,
+                                    role,
+                                    must_change_password
+                                )
+                            VALUES
+                                (
+                                    :full_name,
+                                    :email,
+                                    :password_hash,
+                                    TRUE,
+                                    :role,
+                                    TRUE
+                                )
+                        """),
+                        {
+                            "full_name": user_data["full_name"],
+                            "email": user_data["email"],
+                            "password_hash": password_hash,
+                            "role": user_data["role"]
+                        }
+                    )
+
+            session.commit()
 
     except Exception as e:
-        st.error(f"Error creando usuario administrador: {e}")
+        st.error(f"Error creando usuarios iniciales: {e}")
         st.stop()
 
 
+# =========================
+# LOGIN
+# =========================
 def get_user_by_email(email):
     with conn.session as session:
         result = session.execute(
@@ -188,7 +242,8 @@ def get_user_by_email(email):
                     email,
                     password_hash,
                     active,
-                    role
+                    role,
+                    must_change_password
                 FROM peralta_users
                 WHERE email = :email
             """),
@@ -201,6 +256,56 @@ def get_user_by_email(email):
         return dict(user._mapping)
 
     return None
+
+
+def forgot_password_screen():
+    st.subheader("🔑 Recuperar contraseña")
+
+    email_reset = st.text_input(
+        "Ingrese su correo registrado",
+        key="reset_email"
+    )
+
+    if st.button("Enviar solicitud de recuperación"):
+        if not email_reset.strip():
+            st.warning("Ingrese su correo.")
+            return
+
+        email_clean = email_reset.strip().lower()
+
+        try:
+            with conn.session as session:
+                user_result = session.execute(
+                    text("""
+                        SELECT id
+                        FROM peralta_users
+                        WHERE email = :email
+                    """),
+                    {"email": email_clean}
+                )
+
+                user_exists = user_result.fetchone()
+
+                if not user_exists:
+                    st.error("No existe un usuario con ese correo.")
+                    return
+
+                session.execute(
+                    text("""
+                        INSERT INTO peralta_password_resets
+                            (email, status)
+                        VALUES
+                            (:email, 'pending')
+                    """),
+                    {"email": email_clean}
+                )
+
+                session.commit()
+
+            st.success("Solicitud enviada. Contacte al administrador.")
+
+        except Exception as e:
+            st.error(f"Error enviando solicitud: {e}")
 
 
 def login_screen():
@@ -243,15 +348,62 @@ def login_screen():
                 "id": user["id"],
                 "full_name": user["full_name"],
                 "email": user["email"],
-                "role": user["role"]
+                "role": user["role"],
+                "must_change_password": user["must_change_password"]
             }
             st.rerun()
         else:
             st.error("Usuario o contraseña incorrectos.")
 
-    st.info("Usuario inicial: admin@peraltasgarage.com | Password: 123456")
+    with st.expander("¿Olvidó su contraseña?"):
+        forgot_password_screen()
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+def force_change_password():
+    st.title("🔐 Cambiar contraseña")
+    st.warning("Por seguridad debe cambiar su contraseña antes de continuar.")
+
+    new_password = st.text_input("Nueva contraseña", type="password")
+    confirm_password = st.text_input("Confirmar contraseña", type="password")
+
+    if st.button("Guardar nueva contraseña"):
+        if len(new_password) < 8:
+            st.error("La contraseña debe tener al menos 8 caracteres.")
+            return
+
+        if new_password != confirm_password:
+            st.error("Las contraseñas no coinciden.")
+            return
+
+        user = st.session_state.get("user")
+
+        try:
+            new_hash = hash_password(new_password)
+
+            with conn.session as session:
+                session.execute(
+                    text("""
+                        UPDATE peralta_users
+                        SET password_hash = :password_hash,
+                            must_change_password = FALSE
+                        WHERE id = :user_id
+                    """),
+                    {
+                        "password_hash": new_hash,
+                        "user_id": user["id"]
+                    }
+                )
+
+                session.commit()
+
+            st.success("Contraseña actualizada correctamente.")
+            st.session_state["user"]["must_change_password"] = False
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Error cambiando contraseña: {e}")
 
 
 def logout_button():
@@ -272,13 +424,17 @@ def logout_button():
 # INICIALIZAR DB Y LOGIN
 # =========================
 init_db()
-create_default_admin()
+create_default_users()
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if not st.session_state["logged_in"]:
     login_screen()
+    st.stop()
+
+if st.session_state.get("user", {}).get("must_change_password"):
+    force_change_password()
     st.stop()
 
 
@@ -315,7 +471,7 @@ if "service_rows" not in st.session_state:
 
 
 # =========================
-# CLASE PDF
+# PDF
 # =========================
 class ModernInvoice(FPDF):
 
@@ -452,9 +608,6 @@ class ModernInvoice(FPDF):
         )
 
 
-# =========================
-# GENERAR PDF
-# =========================
 def generate_pdf(data, services, addresses):
     language = data.get("language", "English")
 
@@ -620,15 +773,290 @@ def generate_pdf(data, services, addresses):
     return bytes(output)
 
 
-# =========================
-# MOSTRAR PDF
-# =========================
 def display_pdf(pdf_bytes):
     base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
     pdf_display = f"""
         data:application/pdf;base64,{base64_pdf}
     """
     st.markdown(pdf_display, unsafe_allow_html=True)
+
+
+# =========================
+# ADMIN PANEL
+# =========================
+def admin_panel():
+    user = st.session_state.get("user", {})
+
+    if user.get("role") != "admin":
+        st.warning("No tiene permisos para acceder a esta sección.")
+        return
+
+    st.header("👑 Admin Panel")
+
+    tab_users, tab_resets = st.tabs(["👥 Usuarios", "🔑 Recuperaciones"])
+
+    with tab_users:
+        st.subheader("Crear nuevo usuario")
+
+        new_name = st.text_input("Nombre completo", key="new_user_name")
+        new_email = st.text_input("Email", key="new_user_email")
+        new_password = st.text_input("Contraseña temporal", type="password", key="new_user_password")
+        new_role = st.selectbox("Rol", ["user", "admin"], key="new_user_role")
+
+        if st.button("Crear usuario"):
+            if not new_name.strip() or not new_email.strip() or not new_password.strip():
+                st.warning("Complete todos los campos.")
+            elif len(new_password) < 8:
+                st.error("La contraseña debe tener al menos 8 caracteres.")
+            else:
+                try:
+                    password_hash = hash_password(new_password)
+
+                    with conn.session as session:
+                        session.execute(
+                            text("""
+                                INSERT INTO peralta_users
+                                    (
+                                        full_name,
+                                        email,
+                                        password_hash,
+                                        active,
+                                        role,
+                                        must_change_password
+                                    )
+                                VALUES
+                                    (
+                                        :full_name,
+                                        :email,
+                                        :password_hash,
+                                        TRUE,
+                                        :role,
+                                        TRUE
+                                    )
+                            """),
+                            {
+                                "full_name": new_name.strip(),
+                                "email": new_email.strip().lower(),
+                                "password_hash": password_hash,
+                                "role": new_role
+                            }
+                        )
+
+                        session.commit()
+
+                    st.success("Usuario creado correctamente.")
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error creando usuario: {e}")
+
+        st.markdown("---")
+        st.subheader("Usuarios existentes")
+
+        try:
+            with conn.session as session:
+                result = session.execute(
+                    text("""
+                        SELECT
+                            id,
+                            full_name,
+                            email,
+                            active,
+                            role,
+                            must_change_password,
+                            created_at
+                        FROM peralta_users
+                        ORDER BY id ASC
+                    """)
+                )
+
+                users_df = pd.DataFrame(result.fetchall(), columns=result.keys())
+
+            if not users_df.empty:
+                for _, row in users_df.iterrows():
+                    with st.expander(f"{row['full_name']} | {row['email']} | {row['role']}"):
+                        st.write(f"Activo: {row['active']}")
+                        st.write(f"Debe cambiar contraseña: {row['must_change_password']}")
+
+                        col1, col2, col3 = st.columns(3)
+
+                        with col1:
+                            temp_password = st.text_input(
+                                "Nueva contraseña",
+                                type="password",
+                                key=f"pass_{row['id']}"
+                            )
+
+                            if st.button("Cambiar contraseña", key=f"change_pass_{row['id']}"):
+                                if len(temp_password) < 8:
+                                    st.error("La contraseña debe tener al menos 8 caracteres.")
+                                else:
+                                    try:
+                                        new_hash = hash_password(temp_password)
+
+                                        with conn.session as session:
+                                            session.execute(
+                                                text("""
+                                                    UPDATE peralta_users
+                                                    SET password_hash = :password_hash,
+                                                        must_change_password = TRUE
+                                                    WHERE id = :user_id
+                                                """),
+                                                {
+                                                    "password_hash": new_hash,
+                                                    "user_id": int(row["id"])
+                                                }
+                                            )
+
+                                            session.commit()
+
+                                        st.success("Contraseña actualizada.")
+                                        st.rerun()
+
+                                    except Exception as e:
+                                        st.error(f"Error: {e}")
+
+                        with col2:
+                            new_status = not bool(row["active"])
+
+                            if st.button(
+                                "Desactivar" if row["active"] else "Activar",
+                                key=f"toggle_{row['id']}"
+                            ):
+                                try:
+                                    with conn.session as session:
+                                        session.execute(
+                                            text("""
+                                                UPDATE peralta_users
+                                                SET active = :active
+                                                WHERE id = :user_id
+                                            """),
+                                            {
+                                                "active": new_status,
+                                                "user_id": int(row["id"])
+                                            }
+                                        )
+
+                                        session.commit()
+
+                                    st.success("Estado actualizado.")
+                                    st.rerun()
+
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+
+                        with col3:
+                            selected_role = st.selectbox(
+                                "Rol",
+                                ["user", "admin"],
+                                index=0 if row["role"] == "user" else 1,
+                                key=f"role_{row['id']}"
+                            )
+
+                            if st.button("Guardar rol", key=f"save_role_{row['id']}"):
+                                try:
+                                    with conn.session as session:
+                                        session.execute(
+                                            text("""
+                                                UPDATE peralta_users
+                                                SET role = :role
+                                                WHERE id = :user_id
+                                            """),
+                                            {
+                                                "role": selected_role,
+                                                "user_id": int(row["id"])
+                                            }
+                                        )
+
+                                        session.commit()
+
+                                    st.success("Rol actualizado.")
+                                    st.rerun()
+
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+            else:
+                st.info("No hay usuarios registrados.")
+
+        except Exception as e:
+            st.error(f"Error cargando usuarios: {e}")
+
+    with tab_resets:
+        st.subheader("Solicitudes de recuperación")
+
+        try:
+            with conn.session as session:
+                result = session.execute(
+                    text("""
+                        SELECT
+                            id,
+                            email,
+                            status,
+                            requested_at,
+                            resolved_at
+                        FROM peralta_password_resets
+                        ORDER BY id DESC
+                    """)
+                )
+
+                resets_df = pd.DataFrame(result.fetchall(), columns=result.keys())
+
+            if not resets_df.empty:
+                for _, row in resets_df.iterrows():
+                    with st.expander(f"{row['email']} | {row['status']} | {row['requested_at']}"):
+                        st.write(f"Estado: {row['status']}")
+
+                        if row["status"] == "pending":
+                            reset_password = st.text_input(
+                                "Nueva contraseña temporal",
+                                type="password",
+                                key=f"reset_pass_{row['id']}"
+                            )
+
+                            if st.button("Resolver y cambiar contraseña", key=f"resolve_{row['id']}"):
+                                if len(reset_password) < 8:
+                                    st.error("La contraseña debe tener al menos 8 caracteres.")
+                                else:
+                                    try:
+                                        new_hash = hash_password(reset_password)
+
+                                        with conn.session as session:
+                                            session.execute(
+                                                text("""
+                                                    UPDATE peralta_users
+                                                    SET password_hash = :password_hash,
+                                                        must_change_password = TRUE
+                                                    WHERE email = :email
+                                                """),
+                                                {
+                                                    "password_hash": new_hash,
+                                                    "email": row["email"]
+                                                }
+                                            )
+
+                                            session.execute(
+                                                text("""
+                                                    UPDATE peralta_password_resets
+                                                    SET status = 'resolved',
+                                                        resolved_at = CURRENT_TIMESTAMP
+                                                    WHERE id = :reset_id
+                                                """),
+                                                {"reset_id": int(row["id"])}
+                                            )
+
+                                            session.commit()
+
+                                        st.success("Solicitud resuelta y contraseña cambiada.")
+                                        st.rerun()
+
+                                    except Exception as e:
+                                        st.error(f"Error resolviendo solicitud: {e}")
+
+            else:
+                st.info("No hay solicitudes de recuperación.")
+
+        except Exception as e:
+            st.error(f"Error cargando recuperaciones: {e}")
 
 
 # =========================
@@ -701,7 +1129,12 @@ with st.sidebar:
     highlight_color = hex_to_rgb(highlight_hex)
 
 
-tab1, tab2 = st.tabs(["🆕 Create Invoice", "📜 Invoice History"])
+current_user = st.session_state.get("user", {})
+
+if current_user.get("role") == "admin":
+    tab1, tab2, tab3 = st.tabs(["🆕 Create Invoice", "📜 Invoice History", "👑 Admin"])
+else:
+    tab1, tab2 = st.tabs(["🆕 Create Invoice", "📜 Invoice History"])
 
 
 # =========================
@@ -1067,3 +1500,11 @@ with tab2:
 
     except Exception as e:
         st.error(f"Error loading history: {e}")
+
+
+# =========================
+# TAB 3 - ADMIN
+# =========================
+if current_user.get("role") == "admin":
+    with tab3:
+        admin_panel()
