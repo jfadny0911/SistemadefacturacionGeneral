@@ -14,7 +14,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Ocultar menú automático de páginas del sidebar
+# Ocultar menú automático del sidebar
 st.markdown("""
     <style>
         [data-testid="stSidebarNav"] {
@@ -31,7 +31,7 @@ conn = st.connection("postgresql", type="sql")
 
 
 # =========================
-# FUNCIÓN PARA TEXTO SEGURO EN PDF
+# TEXTO SEGURO PARA PDF
 # =========================
 def safe_text(value):
     if value is None:
@@ -76,6 +76,11 @@ def init_db():
 
 
 init_db()
+
+
+# =========================
+# NÚMERO AUTOMÁTICO DE FACTURA
+# =========================
 def get_next_invoice_number():
     try:
         with conn.session as session:
@@ -124,7 +129,7 @@ class ModernInvoice(FPDF):
         self.set_fill_color(*self.rojo)
         self.rect(0, 0, 210, 3, "F")
 
-        # Nombre del negocio
+        # Nombre negocio
         self.set_xy(10, 9)
         self.set_font("Helvetica", "B", 20)
         self.set_text_color(255, 255, 255)
@@ -196,7 +201,7 @@ class ModernInvoice(FPDF):
         self.set_text_color(40, 40, 40)
         self.multi_cell(95, 5, safe_text(data["project_addr"]), align="L")
 
-        # Información del negocio
+        # Info negocio
         self.set_xy(125, 62)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*self.azul)
@@ -422,7 +427,14 @@ with tab1:
 
     c1, c2, c3 = st.columns([1, 2, 1])
 
-    inv_no = c1.text_input("Invoice #")
+    inv_no = get_next_invoice_number()
+
+    c1.text_input(
+        "Invoice #",
+        value=inv_no,
+        disabled=True
+    )
+
     c_name = c2.text_input("Client Name")
     due_d = c3.date_input("Due Date")
 
@@ -504,10 +516,6 @@ with tab1:
     st.markdown("---")
 
     if st.button("💾 SAVE & GENERATE PDF"):
-        if not inv_no.strip():
-            st.warning("Please enter an invoice number.")
-            st.stop()
-
         if not c_name.strip():
             st.warning("Please enter the client name.")
             st.stop()
@@ -614,11 +622,11 @@ with tab1:
 
             pdf_bytes = generate_pdf(
                 pdf_info,
-                st.session_state.service_rows,
+                valid_services,
                 st.session_state.address_rows
             )
 
-            st.success("Invoice saved and PDF generated!")
+            st.success(f"Invoice {inv_no} saved and PDF generated!")
 
             st.download_button(
                 "📥 Download PDF",
@@ -629,6 +637,11 @@ with tab1:
 
             st.subheader("📄 Preview")
             display_pdf(pdf_bytes)
+
+            st.session_state.address_rows = [""]
+            st.session_state.service_rows = [
+                {"desc": "", "qty": 1, "price": 0.0}
+            ]
 
         except Exception as e:
             st.error(f"Error saving invoice: {e}")
@@ -677,55 +690,80 @@ with tab2:
                     st.write(f"**Total:** ${float(row['total_amount']):,.2f}")
                     st.write(f"**Addresses:** {row['project_addr']}")
 
-                    if st.button(
-                        f"Re-Generate PDF #{row['inv_num']}",
-                        key=f"re_{row['id']}"
-                    ):
-                        with conn.session as session:
-                            items_result = session.execute(
-                                text("""
-                                    SELECT 
-                                        description AS desc,
-                                        quantity AS qty,
-                                        unit_price AS price
-                                    FROM peralta_invoice_items
-                                    WHERE invoice_id = :invoice_id
-                                """),
-                                {"invoice_id": int(row["id"])}
+                    col_pdf, col_delete = st.columns([0.7, 0.3])
+
+                    with col_pdf:
+                        if st.button(
+                            f"📄 Re-Generate PDF #{row['inv_num']}",
+                            key=f"re_{row['id']}"
+                        ):
+                            with conn.session as session:
+                                items_result = session.execute(
+                                    text("""
+                                        SELECT 
+                                            description AS desc,
+                                            quantity AS qty,
+                                            unit_price AS price
+                                        FROM peralta_invoice_items
+                                        WHERE invoice_id = :invoice_id
+                                    """),
+                                    {"invoice_id": int(row["id"])}
+                                )
+
+                                items_df = pd.DataFrame(
+                                    items_result.fetchall(),
+                                    columns=items_result.keys()
+                                )
+
+                            items_list = items_df.to_dict("records")
+                            addr_list = str(row["project_addr"]).split(" | ")
+
+                            pdf_info_re = {
+                                "business_name": row["business_name"] or my_business,
+                                "business_description": row["business_description"] or my_description,
+                                "phone": row["business_phone"] or my_phone,
+                                "client_name": row["cliente"],
+                                "inv_num": row["inv_num"],
+                                "date": row["fecha_hoy"],
+                                "due_date": row["due_date"] or row["fecha_hoy"],
+                                "payable_to": row["business_name"] or my_payable
+                            }
+
+                            re_pdf_bytes = generate_pdf(
+                                pdf_info_re,
+                                items_list,
+                                addr_list
                             )
 
-                            items_df = pd.DataFrame(
-                                items_result.fetchall(),
-                                columns=items_result.keys()
+                            st.download_button(
+                                "📥 Click here to Download",
+                                data=re_pdf_bytes,
+                                file_name=f"Invoice_{row['inv_num']}.pdf",
+                                mime="application/pdf",
+                                key=f"dl_{row['id']}"
                             )
 
-                        items_list = items_df.to_dict("records")
-                        addr_list = str(row["project_addr"]).split(" | ")
+                    with col_delete:
+                        if st.button(
+                            f"🗑️ Delete",
+                            key=f"del_invoice_{row['id']}"
+                        ):
+                            try:
+                                with conn.session as session:
+                                    session.execute(
+                                        text("""
+                                            DELETE FROM peralta_invoices
+                                            WHERE id = :invoice_id
+                                        """),
+                                        {"invoice_id": int(row["id"])}
+                                    )
+                                    session.commit()
 
-                        pdf_info_re = {
-                            "business_name": row["business_name"] or my_business,
-                            "business_description": row["business_description"] or my_description,
-                            "phone": row["business_phone"] or my_phone,
-                            "client_name": row["cliente"],
-                            "inv_num": row["inv_num"],
-                            "date": row["fecha_hoy"],
-                            "due_date": row["due_date"] or row["fecha_hoy"],
-                            "payable_to": row["business_name"] or my_payable
-                        }
+                                st.success(f"Invoice {row['inv_num']} deleted.")
+                                st.rerun()
 
-                        re_pdf_bytes = generate_pdf(
-                            pdf_info_re,
-                            items_list,
-                            addr_list
-                        )
-
-                        st.download_button(
-                            "📥 Click here to Download",
-                            data=re_pdf_bytes,
-                            file_name=f"Invoice_{row['inv_num']}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_{row['id']}"
-                        )
+                            except Exception as e:
+                                st.error(f"Error deleting invoice: {e}")
 
         else:
             st.info("No invoices found.")
